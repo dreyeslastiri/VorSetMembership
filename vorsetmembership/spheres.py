@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 @author: Daniel Reyes Lastiri
-Module to characterise a set of feasible solutions for parameter estimates
-as a set of circles contained within unfeasible points,
-by means of Voronoi vertices as the centers of the circles
+Module to generate spheres that characterise the FPS,
+contained within unfeasible points, with Voronoi vertices as centers.
 """
 import numpy as np
 from scipy.spatial import Voronoi
@@ -25,6 +24,19 @@ if not logger.handlers:
     logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
 
+def _plot_spheres(fig_name,p_list,c,r):
+    fig = plt.figure(fig_name)
+    ax = plt.gca()
+    ax = plot_scatter(ax,[pun,pfn],
+        xlabel=r'$p_1$', ylabel=r'$p_2$', marker_list=['x','o'],
+        label_list = ['Unfeasible','Feasible']
+        )
+    for i,ci in enumerate(c):
+        circleplt = plt.Circle(ci,r[i],fill=False,color='0.5')
+        ax.add_artist(circleplt)
+    ax.set_aspect('equal')
+    return fig
+    
 def spheres(p_feasible, p_unfeasible,rmin=0.025,rmax=1.0,
             filtering=True,cnstr=False): 
     '''Generates spheres that contain feasible points and exclude
@@ -37,7 +49,7 @@ def spheres(p_feasible, p_unfeasible,rmin=0.025,rmax=1.0,
     Returns
     -------
     '''
-    logger.info('---- Calling spheres function ----')    
+    logger.info('\n---- Calling spheres function ----')    
     pfn, pun = p_feasible, p_unfeasible
     ndim = pfn.shape[1]
     # Generate Voronoi diagram and retrieve its information
@@ -54,52 +66,53 @@ def spheres(p_feasible, p_unfeasible,rmin=0.025,rmax=1.0,
     if cnstr:
         cnstr_min, cnstr_max = cnstr[0], cnstr[1]
     else:
-        cnstr_min, cnstr_max = [-1E4,]*ndim, [1E4,]*ndim
+        cnstr_min, cnstr_max = [-1E3,]*ndim, [1E3,]*ndim
     t_elapsed = timing.end(tstart)
-    logger.debug('{} pu and {} pf to {} spheres'.format(
-            pun.shape[0],pfn.shape[0],vertices.shape[0]))
+    logger.info('{} pu and {} pf'.format(pun.shape[0],pfn.shape[0]))
+    logger.info('Spheres: \t{}'.format(vertices.shape[0]))
     logger.info('t_elapsed: \t{}'.format(timing.secondsToStr(t_elapsed)))
     
     # Calculate radii
     logger.info('Calculating radii')
     tstart = timing.start()
-    r_all_list = [-1,]*len(vertices)
+    r_list = [-1,]*len(vertices)
     iph_tup_all_list = [-1,]*len(vertices)
     for ip_tuple,iv_list in pv_ridge_dict.items():
         for iv in iv_list:
             # Calculate radius if not done yet (when r==-1),
             # for vertices that don't go to infinity (v!=-1)
             # (each vertex can be in several ridges, so take it only once)
-            if iv!=-1 and r_all_list[iv] == -1:
-                r_all_list[iv] = LA.norm(vertices[iv]-points[ip_tuple[0]])
+            if iv!=-1 and r_list[iv] == -1:
+                r_list[iv] = LA.norm(vertices[iv]-points[ip_tuple[0]])
                 iph_tup_all_list[iv] = ip_tuple
-    r_all_arr = np.asarray(r_all_list)
+    r_all_arr = np.asarray(r_list)
     t_elapsed = timing.end(tstart)
     logger.info('t_elapsed: {}'.format(timing.secondsToStr(t_elapsed)))
+#    _plot_spheres('initial',[pfn,pun],vertices,r_all_arr)
     
     # Remove meaningless spheres
     # (spheres with very large radius, very small radius, or beyond constraints)
-    logger.info('Filtering out spheres')
-    tstart = timing.start()
-    pfnmin, pfnmax = pfn.min(axis=0), pfn.max(axis=0)
+    # To show details: Uncomment commented lines and set logger level to debug
     if filtering:
-
-        print('num r all',r_all_arr.shape[0])
-        ibig = [i for i,r in enumerate (r_all_list) if r>=rmax]
-        ismall = [i for i,r in enumerate (r_all_list) if r<rmin]
-        ilowmin = [i for i,r in enumerate (r_all_list) if np.any(vertices[i,:]<pfnmin)]
-        ihimax = [i for i,r in enumerate (r_all_list) if np.any(vertices[i,:]>pfnmax)]
-        icnstrmin = [i for i,r in enumerate (r_all_list) if np.any(vertices[i,:]<cnstr_min+r)]
-        icnstrmax = [i for i,r in enumerate (r_all_list) if np.any(vertices[i,:]>cnstr_max-r)]
-        print('too large',len(ibig))
-        print('too small',len(ismall))
-        print('too far low pfn',len(ilowmin))
-        print('too far hi pfn',len(ihimax))
-        print('too far low cnstr', len(icnstrmin))
-        print('too far hi cnstr', len(icnstrmax))
-    
+        logger.info('Filtering out spheres')
+        tstart = timing.start()
+        pfnmin, pfnmax = pfn.min(axis=0), pfn.max(axis=0)
+#        ibig = [i for i,r in enumerate (r_list) if r>=rmax]
+#        ismall = [i for i,r in enumerate (r_list) if r<rmin]
+#        ilo = [i for i,r in enumerate (r_list) if np.any(vertices[i,:]<pfnmin)]
+#        ihi = [i for i,r in enumerate (r_list) if np.any(vertices[i,:]>pfnmax)]
+#        ibelowcnstr = [i for i,r in enumerate (r_list)
+#                        if np.any(vertices[i,:]<cnstr_min+r)]
+#        iabovecnstr = [i for i,r in enumerate (r_list)
+#                        if np.any(vertices[i,:]>cnstr_max-r)]
+#        logger.debug('{0} large, {1} small'.format(
+#                len(ibig), len(ismall)))
+#        logger.debug('{0} below nmin, {1} above nmax'.format(
+#                len(ilo),len(ihi)))
+#        logger.debug('{0} below, {1} above constraints'.format(
+#                len(ibelowcnstr),len(iabovecnstr)))
         i_meaningful = [
-            i for i,r in enumerate(r_all_list)
+            i for i,r in enumerate(r_list)
             if (r!=-1 and r<rmax and r>rmin
             and np.all(vertices[i,:] > pfnmin)
             and np.all(vertices[i,:] < pfnmax)
@@ -110,12 +123,12 @@ def spheres(p_feasible, p_unfeasible,rmin=0.025,rmax=1.0,
         r_meaningful = r_all_arr[i_meaningful]
         iph_tup_meaningful_list = [iph_tup_all_list[i] for i in i_meaningful]
         t_elapsed = timing.end(tstart)
+        logger.info('Spheres: \t{}'.format(len(i_meaningful)))
+        logger.info('t_elapsed: {}'.format(timing.secondsToStr(t_elapsed)))
+#        _plot_spheres('meaningful',[pfn,pun],c_meaningful,r_meaningful)
     else:
         c_meaningful, r_meaningful = vertices, r_all_arr
         iph_tup_meaningful_list = iph_tup_all_list
-        
-    print('Spheres: \t{}'.format(r_meaningful.shape[0]))
-    logger.info('t_elapsed: {}'.format(timing.secondsToStr(t_elapsed)))
     
     # Generate array feasible points associated to each sphere center
     # as 0 for not belonging and 1 for belonging to a sphere
@@ -138,8 +151,9 @@ def spheres(p_feasible, p_unfeasible,rmin=0.025,rmax=1.0,
     center_pf_nonempty = center_pf[i_nonempty]
     iph_tup_nonempty_list = [iph_tup_meaningful_list[i] for i in i_nonempty]
     t_elapsed = timing.end(tstart)
-    logger.debug('Spheres: \t{}'.format(len(i_nonempty)))
+    logger.info('Spheres: \t{}'.format(len(i_nonempty)))
     logger.info('t_elapsed: {}'.format(timing.secondsToStr(t_elapsed)))
+#    _plot_spheres('non-empty',[pfn,pun],c_nonempty,r_nonempty)
     
     # Remove redundant spheres
     logger.info('Deleting redundant spheres')
@@ -168,9 +182,10 @@ def spheres(p_feasible, p_unfeasible,rmin=0.025,rmax=1.0,
     center_pf_final = center_pf_sorted[i_nonredundant]
     iph_final = [iph_tup_sorted[i] for i in i_nonredundant]
     t_elapsed = timing.end(tstart)
-    print('Spheres: \t{}'.format(len(i_nonredundant)))
+    logger.info('Spheres: \t{}'.format(len(i_nonredundant)))
     logger.info('t_elapsed: {}'.format(timing.secondsToStr(t_elapsed)))
-
+#    _plot_spheres('non-redundant',[pfn,pun],c_final,r_final)
+    
     # Included and excluded feasible points
     logger.info('Indentifying excluded feasible points')
     tstart = timing.start()
@@ -180,12 +195,12 @@ def spheres(p_feasible, p_unfeasible,rmin=0.025,rmax=1.0,
     pfn_included = pfn[ipf_included]
     pfn_excluded = pfn[ipf_excluded]
     t_elapsed = timing.end(tstart)
-    print('pf included/excluded: \t{}/{}'.format(
+    logger.info('pf included/excluded: \t{}/{}'.format(
             len(ipf_included),len(ipf_excluded)))
     logger.info('t_elapsed: {}'.format(timing.secondsToStr(t_elapsed)))
 
     # Hull of unfeasible points, including redundant spheres
-    # (used only for first iteration)
+    # (used to reset iterations to a region closer to the FPS)
     iph_set = {tup[i] for tup in iph_final for i in range(len(tup))}
     pun_hull_list = [points[i] for i in iph_set]
     pun_hull = np.asarray(pun_hull_list)
@@ -200,28 +215,24 @@ def spheres(p_feasible, p_unfeasible,rmin=0.025,rmax=1.0,
     
     return results
 
-# -------------------------------------
-# ------------- TEST RUN --------------      
+# ---- TEST RUN ----
 if __name__=='__main__':
-    plt.close('all')
-    pfn = np.load('_tests/pfeasmcnorm.npy')
-    pun = np.load('_tests/punfeasmcnorm.npy')
-    vor = Voronoi(pun)
+    from vorsetmembership.plots import plot_scatter
+    pfn = np.load('_tests/pfn_test.npy')
+    pun = np.load('_tests/pun_test.npy')
 
     # Test function
-    sphere_set_results = spheres(pfn, pun)
-    centers = sphere_set_results['centers']
-    radii = sphere_set_results['radii']
+    spheres_dict = spheres(pfn, pun)
+    centers = spheres_dict['centers']
+    radii = spheres_dict['radii']
     
     # Plot figure
-    fig1 = plt.figure(1)
-    ax1 = plt.gca()
-    ax1.scatter(pfn[:,0],pfn[:,1])
-    ax1.scatter(pun[:,0],pun[:,1],c='r')
-    for i,center in enumerate(centers):
-        radius = radii[i]
-        circleplt = plt.Circle(center,radius,fill=False,color='0.5')
-        ax1.add_artist(circleplt)
+    fig1 = plt.figure('Test')
+    ax1 = plt.subplot2grid((4,1), (0, 0), rowspan=3)
+    ax1 = plot_scatter(ax1,[pun,pfn],
+        xlabel=r'$p_1$', ylabel=r'$p_2$', marker_list=['x','o'],
+        label_list = ['Unfeasible','Feasible'],spheres=spheres_dict
+        )
     ax1.set_xlim(0,1.5)
-    ax1.set_ylim(0,1.5)
+    ax1.set_ylim(0,1.8)
     ax1.set_aspect('equal')
