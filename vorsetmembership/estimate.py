@@ -6,41 +6,38 @@ Funtions to evaluate and refine a sphere set
 
 import numpy as np
 import logging
-import matplotlib.pyplot as plt
-from matplotlib.ticker import FormatStrFormatter
 
-from chilafufu.spheres import spheres
-from chilafufu.sample import sample_body, sample_near_borders
-from chilafufu.evaluate import evaluate
-from chilafufu import timing
-from chilafufu.plot_templates import plot_scatter
+from vorsetmembership.spheres import spheres
+from vorsetmembership.sample import sample_body, sample_near_borders
+from vorsetmembership.evaluate import evaluate
+from vorsetmembership import timing
+
 
 # Logger
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(name)s:%(levelname)s \t%(message)s')
-file_handler = logging.FileHandler('report.log', mode='a')
-file_handler.setFormatter(formatter)
-console_handler = logging.StreamHandler()
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
+if not logger.handlers:
+    logger.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(message)s')
+    file_handler = logging.FileHandler('report.log', mode='w')
+    file_handler.setFormatter(formatter)
+    stream_handler = logging.StreamHandler()
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
 
 def slice_all(slice_obj,arrays_list):
     self = [arr[slice_obj] for arr in arrays_list]
     return self
         
 def chilafufu(initialize_dict,function,tsim,x0,u,ut,p,tdata,
-              wdtol=0.05, iter_max=10, ns_body=10, ns_nb=100,
+              wdtol=0.05, iter_max=10, ns_nb=100,
               rmin=0.025, rmax = 1.0, constraints=False, filter_spheres=True):
-#    print('')
-#    print('='*40)
-#    print('Refining sphere set')
-    logger.info('---- Starting FPS identification ----')
-    # Retrieve variables from results of initializing parameter space
+    logger.info('\n---- Starting FPS identification ----')
+    # Retrieve variables from results of Initialize
     ydata_min = initialize_dict['ydata_min']
     ydata_max = initialize_dict['ydata_max']
     pfn = initialize_dict['pfn']
     pun = initialize_dict['pun']
+    pun_ini = pun.copy()
     norm_minmax = initialize_dict['norm_minmax']
     nmin, nmax = norm_minmax
     # Initialize arrays of results per iteration
@@ -52,7 +49,8 @@ def chilafufu(initialize_dict,function,tsim,x0,u,ut,p,tdata,
     t_elapsed_arr = np.ones(iter_max)
     # Other parameters
     ndim = pfn.shape[1]
-    # Constraints. Tuple of lists, e.g. ([p0min,p1min],[p0max,p1max])
+    # Normalize constraints.
+    # Tuple of lists, e.g. ([p0min,p1min],[p0max,p1max])
     if constraints:
         cmin,cmax = constraints[0], constraints[1]
         cmin_n, cmax_n = (cmin-nmin)/(nmax-nmin), (cmax-nmin)/(nmax-nmin)
@@ -60,10 +58,6 @@ def chilafufu(initialize_dict,function,tsim,x0,u,ut,p,tdata,
     else:
         cnstr_n = False
     # -- Initial sample and evaluation (Iteration 0) --
-#    print('')
-#    print('='*40)
-#    print('Iteration 0')
-    print('Iteration 0')
     logger.info('-- Iteration 0 --')
     tstart_0 = timing.start()
     
@@ -71,8 +65,9 @@ def chilafufu(initialize_dict,function,tsim,x0,u,ut,p,tdata,
     sphere_dict = spheres(pfn,pun,rmin=rmin,rmax=rmax,
                           cnstr=cnstr_n,filtering=filter_spheres)
     pun_hull = sphere_dict['pun_hull']
+    pun_hulls = pun_hull.copy()
     # Sample in body of spheres
-    sample_body_res = sample_body(sphere_dict,norm_minmax,ns=ns_body)
+    sample_body_res = sample_body(sphere_dict,norm_minmax)
     ps_body, psn_body = sample_body_res['ps'], sample_body_res['psn']
     # Sample near borders of spheres
     sample_nb_res = sample_near_borders(sphere_dict,norm_minmax,ns=ns_nb,
@@ -82,8 +77,8 @@ def chilafufu(initialize_dict,function,tsim,x0,u,ut,p,tdata,
     # Evaluate sampled points
     # (to determine deviations from bounds and new points for Voronoi)
     eval_out_dict = evaluate(function,tsim,x0,u,ut,p,
-                               sphere_dict,ps_body,ps_nb_in,ps_nb_out,
-                               norm_minmax,tdata,ydata_min,ydata_max)
+                             sphere_dict,ps_body,ps_nb_in,ps_nb_out,
+                             norm_minmax,tdata,ydata_min,ydata_max)
     # Deviations
     td_arr[0] = eval_out_dict['total_deviation']
     oe_arr[0] = eval_out_dict['overestimation']
@@ -99,11 +94,12 @@ def chilafufu(initialize_dict,function,tsim,x0,u,ut,p,tdata,
     isf_nb_out = eval_out_dict['isf_nb_out_list']
     if not np.all(np.isnan(isf_nb_out)): psfn_nb_out = psn_nb_out[isf_nb_out]
     else: psfn_nb_out = np.array([np.nan,]*ndim)
+    psfn_nb_in = psn_nb_in[eval_out_dict['isf_nb_in_list']]
     #XXX: Testing idea of not only pun_hull on 1st iteration
     if constraints:
         pun = np.vstack((pun,psun_body,psun_nb_in)) # Need all pun when constrained
     else:
-        pun = np.vstack((pun,psun_body,psun_nb_in))#pun_hull
+        pun = np.vstack((pun,psun_body,psun_nb_in))
     mask_pun = np.all(np.isnan(pun), axis=1)
     pun = pun[~mask_pun]
     pfn = np.vstack((pfn,psfn_nb_out))
@@ -116,22 +112,20 @@ def chilafufu(initialize_dict,function,tsim,x0,u,ut,p,tdata,
     
     # Iterate until error tolerance or iteration limit are met
     for i in range(iter_max)[1:]:        
-#        print('')
-#        print('='*40)
-#        print('Iteration {0}'.format(i))
-        print('Iteration {}'.format(i))
         logger.info('-- Iteration {} --'.format(i))
         tstart_it = timing.start()
         # ---- SPHERE SET ----
         # Generate new sphere dictionary
-        rmin = rmin*min(pfn.max(axis=0)-pfn.min(axis=0))
+#        rmin = rmin*min(pfn.max(axis=0)-pfn.min(axis=0))
         sphere_dict_new = spheres(pfn,pun,rmin=rmin,rmax=rmax,
                                   cnstr=cnstr_n,filtering=filter_spheres)
-        pun_hull = sphere_dict_new['pun_hull']
+        # Store pun_hull for soft reset
+        if i%2 == 0:
+            pun_hulls = np.vstack((pun_hulls,sphere_dict_new['pun_hull']))
         
         # ---- SAMPLE ----
         # Sample in body of spheres
-        sample_body_dict = sample_body(sphere_dict_new,norm_minmax,ns=ns_body)
+        sample_body_dict = sample_body(sphere_dict_new,norm_minmax)
         ps_body, psn_body = sample_body_dict['ps'], sample_body_dict['psn']
         # Sample near borders of spheres
         sample_nb_dict = sample_near_borders(sphere_dict_new,norm_minmax,
@@ -191,11 +185,18 @@ def chilafufu(initialize_dict,function,tsim,x0,u,ut,p,tdata,
         pun = np.vstack((pun,psun_body,psun_nb_in))
         mask_pun = np.all(np.isnan(pun), axis=1)
         pun = pun[~mask_pun]
-
-        pfn = np.vstack((pfn,psfn_nb_out))
+        
+        keeppfin = int(0.1*psfn_nb_in.shape[0])
+        pfn = np.vstack((pfn,psfn_nb_out,psfn_nb_in[0:keeppfin,:]))
         mask_pfn = np.all(np.isnan(pfn), axis=1)
         pfn = pfn[~mask_pfn]
         
+        # Soft reset if excess pun
+#        if i%5==0:# and pun.shape[0] >= 100:
+#            print('SOFT RESET')
+#            print('TADA!')
+#            pun = np.vstack((pun_ini,pun_hulls))
+            
         t_elapsed_it = timing.end(tstart_it)
         t_elapsed_arr[i] = t_elapsed_it
         logger.info('t_elapsed iteration {}: {}'.format(
@@ -220,5 +221,5 @@ def chilafufu(initialize_dict,function,tsim,x0,u,ut,p,tdata,
         't_elapsed':t_elapsed_arr}
     
     return results, logs
-    
+  
 
